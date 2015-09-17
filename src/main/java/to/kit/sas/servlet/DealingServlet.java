@@ -3,41 +3,38 @@ package to.kit.sas.servlet;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.lang.reflect.Method;
+import java.nio.charset.Charset;
 import java.util.Map;
 
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
-import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import net.arnx.jsonic.JSON;
 import ognl.Ognl;
 import ognl.OgnlException;
+import ognl.OgnlRuntime;
 import to.kit.sas.control.Controller;
 import to.kit.sas.control.ControllerCache;
+import to.kit.sas.util.RequestUtils;
 
 /**
  * Dealing Servlet.
  * @author Hidetaka Sasai
  */
-@WebServlet(urlPatterns = { "/*" }, loadOnStartup = 1)
 public final class DealingServlet extends HttpServlet {
-	/** logger. */
-	private static final Logger LOG = LogManager.getLogger();
+	/** extension. */
+	public static final String CONTROLLER_EXTENSION = ".cont";
 
 	@SuppressWarnings("unchecked")
 	private Controller<Object> getController(HttpServletRequest request) {
-		String pathInfo = request.getPathInfo();
+		String pathInfo = RequestUtils.inferPath(request);
+		int endIndex = pathInfo.length() - CONTROLLER_EXTENSION.length();
 
-		LOG.debug("path[{}]", pathInfo);
-		if (1 < pathInfo.length()) {
-			String name = pathInfo.substring(1);
+		if (1 < endIndex) {
+			String name = pathInfo.substring(0, endIndex);
 
 			return (Controller<Object>) ControllerCache.getInstance().get(name);
 		}
@@ -62,7 +59,6 @@ public final class DealingServlet extends HttpServlet {
 			if (type == Object.class) {
 				continue;
 			}
-			LOG.info("form[{}]", type.getName());
 			try {
 				obj = type.newInstance();
 			} catch (SecurityException | InstantiationException | IllegalAccessException e) {
@@ -92,7 +88,7 @@ public final class DealingServlet extends HttpServlet {
 	 * @see javax.servlet.http.HttpServlet#doPost(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)
 	 */
 	@Override
-	protected void service(HttpServletRequest request, HttpServletResponse resp) throws ServletException, IOException {
+	protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
 		Controller<Object> controller = getController(request);
 		Object result = null;
 
@@ -102,11 +98,14 @@ public final class DealingServlet extends HttpServlet {
 			fillParameter(parameter, request);
 			result = controller.execute(parameter);
 		}
-		try (PrintWriter out = resp.getWriter()) {
+		response.setCharacterEncoding(Charset.defaultCharset().toString());
+		response.setContentType("application/json;charset=UTF-8");
+		try (PrintWriter out = response.getWriter()) {
 			if (result == null) {
 				out.println("{}");
 				return;
 			}
+			// JSON
 			out.println(JSON.encode(result));
 		}
 	}
@@ -117,11 +116,13 @@ public final class DealingServlet extends HttpServlet {
 	@Override
 	public void init(ServletConfig config) throws ServletException {
 		super.init(config);
-		LOG.info("init");
+		OgnlRuntime.setSecurityManager(null);
+		String controllerRoot = getInitParameter("controllerRoot");
+System.out.println("controllerRoot:" + controllerRoot);
 		try {
-			ControllerCache.getInstance().init();
+			ControllerCache.getInstance().init(controllerRoot);
 		} catch (IOException e) {
-			LOG.error(ExceptionUtils.getStackTrace(e));
+			// nop
 		}
 	}
 }

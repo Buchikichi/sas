@@ -5,8 +5,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 /**
  * Cache of controllers.
@@ -15,8 +13,6 @@ import org.apache.logging.log4j.Logger;
 public final class ControllerCache {
 	/** instance. */
 	private static final ControllerCache ME = new ControllerCache();
-	/** logger. */
-	private static final Logger LOG = LogManager.getLogger();
 	/** target suffix. */
 	private static final String TARGET_SUFFIX = "controller";
 	/** cache. */
@@ -36,10 +32,11 @@ public final class ControllerCache {
 
 	/**
 	 * initialize.
+	 * @param controllerRoot Root package of controller
 	 * @throws IOException I/O exception
 	 */
-	public void init() throws IOException {
-		for (Class<?> clazz : new ControllerScanner().getControllerList()) {
+	public void init(String controllerRoot) throws IOException {
+		for (Class<?> clazz : new ControllerScanner().getControllerList(controllerRoot)) {
 			String simpleName = StringUtils.lowerCase(clazz.getSimpleName());
 			String name = StringUtils.lowerCase(clazz.getName());
 			int fromIndex = name.length() - simpleName.length();
@@ -52,8 +49,27 @@ public final class ControllerCache {
 				name = name.substring(beginIndex + 1);
 				this.cache.put(name, clazz);
 			}
-			LOG.debug(name);
 		}
+	}
+
+	private String inferControllerName(final String name) {
+		String controllerName = StringUtils.lowerCase(name);
+
+		if (!controllerName.endsWith(TARGET_SUFFIX)) {
+			controllerName += TARGET_SUFFIX;
+		}
+		return controllerName;
+	}
+
+	/**
+	 * Look a controller.
+	 * @param name name of controller
+	 * @return A controller exists
+	 */
+	public boolean contains(final String name) {
+		String controllerName = inferControllerName(name);
+
+		return this.cache.containsKey(controllerName);
 	}
 
 	/**
@@ -63,11 +79,8 @@ public final class ControllerCache {
 	 */
 	public Controller<?> get(final String name) {
 		Controller<?> controller = null;
-		String controllerName = StringUtils.lowerCase(name);
+		String controllerName = inferControllerName(name);
 
-		if (!controllerName.endsWith(TARGET_SUFFIX)) {
-			controllerName += TARGET_SUFFIX;
-		}
 		if (this.cache.containsKey(controllerName)) {
 			Class<?> clazz = this.cache.get(controllerName);
 
