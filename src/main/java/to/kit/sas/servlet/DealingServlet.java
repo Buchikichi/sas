@@ -105,6 +105,10 @@ public final class DealingServlet extends HttpServlet {
 				out.println("{}");
 				return;
 			}
+			if (result instanceof String) {
+				out.println(result);
+				return;
+			}
 			// JSON
 			out.println(JSON.encode(result));
 		}
