@@ -4,8 +4,6 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.apache.commons.lang3.StringUtils;
-
 /**
  * Cache of controllers.
  * @author Hidetaka Sasai
@@ -37,8 +35,8 @@ public final class ControllerCache {
 	 */
 	public void init(String controllerRoot) throws IOException {
 		for (Class<?> clazz : new ControllerScanner().getControllerList(controllerRoot)) {
-			String simpleName = StringUtils.lowerCase(clazz.getSimpleName());
-			String name = StringUtils.lowerCase(clazz.getName());
+			String simpleName = clazz.getSimpleName().toLowerCase();
+			String name = clazz.getName().toLowerCase();
 			int fromIndex = name.length() - simpleName.length();
 			int beginIndex = name.lastIndexOf('.', fromIndex - 2);
 
@@ -53,7 +51,7 @@ public final class ControllerCache {
 	}
 
 	private String inferControllerName(final String name) {
-		String controllerName = StringUtils.lowerCase(name);
+		String controllerName = name.toLowerCase();
 
 		if (!controllerName.endsWith(TARGET_SUFFIX)) {
 			controllerName += TARGET_SUFFIX;
@@ -87,7 +85,7 @@ public final class ControllerCache {
 			if (Controller.class.isAssignableFrom(clazz)) {
 				try {
 					controller = (Controller<?>) clazz.newInstance();
-				} catch (InstantiationException | IllegalAccessException e) {
+				} catch (@SuppressWarnings("unused") InstantiationException | IllegalAccessException e) {
 					// nop
 				}
 			}

@@ -1,11 +1,16 @@
 package to.kit.sas.servlet;
 
+import java.awt.image.RenderedImage;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.PrintWriter;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.charset.Charset;
 import java.util.Map;
 
+import javax.imageio.ImageIO;
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -19,6 +24,7 @@ import ognl.OgnlRuntime;
 import to.kit.sas.control.Controller;
 import to.kit.sas.control.ControllerCache;
 import to.kit.sas.util.RequestUtils;
+import to.kit.sas.util.RequestUtils.PathInfo;
 
 /**
  * Dealing Servlet.
@@ -26,61 +32,86 @@ import to.kit.sas.util.RequestUtils;
  */
 public final class DealingServlet extends HttpServlet {
 	/** extension. */
-	public static final String CONTROLLER_EXTENSION = ".cont";
+	public static final String DEALING_PREFIX = "/DEAL";
+	/** A default method name. */
+	public static final String DEFAULT_METHOD = "execute";
 
-	@SuppressWarnings("unchecked")
-	private Controller<Object> getController(HttpServletRequest request) {
-		String pathInfo = RequestUtils.inferPath(request);
-		int endIndex = pathInfo.length() - CONTROLLER_EXTENSION.length();
-
-		if (1 < endIndex) {
-			String name = pathInfo.substring(0, endIndex);
-
-			return (Controller<Object>) ControllerCache.getInstance().get(name);
+	private Object[] fillParameter(Class<?> type, PathInfo pathInfo, HttpServletRequest request) {
+		if (type == null) {
+			return null;
 		}
-		return null;
-	}
-
-	private Object getParameterObject(Controller<?> controller) {
-		Object obj = null;
-		Class<?> clazz = controller.getClass();
-
-		for (Method method : clazz.getMethods()) {
-			if (method.getDeclaringClass() == Object.class) {
-				continue;
-			}
-			if (!"execute".equals(method.getName())) {
-				continue;
-			}
-			if (method.getParameterTypes().length != 1) {
-				continue;
-			}
-			Class<?> type = method.getParameterTypes()[0];
-			if (type == Object.class) {
-				continue;
-			}
-			try {
-				obj = type.newInstance();
-			} catch (SecurityException | InstantiationException | IllegalAccessException e) {
-				// nop
-			}
-			break;
+		if (String.class.isAssignableFrom(type)) {
+			return pathInfo.getParams();
 		}
-		return obj;
-	}
+		Object[] args;
+		Object obj;
 
-	private void fillParameter(Object object, HttpServletRequest request) {
-		if (object == null) {
-			return;
+		try {
+			obj = type.newInstance();
+			args = new Object[] { obj };
+		} catch (@SuppressWarnings("unused") InstantiationException | IllegalAccessException e) {
+			return null;
 		}
 		for (Map.Entry<String, String[]> entry : request.getParameterMap().entrySet()) {
 			String name = entry.getKey();
 			String value = entry.getValue()[0];
 			try {
-				Ognl.setValue(name, object, value);
-			} catch (OgnlException e) {
+				Ognl.setValue(name, obj, value);
+			} catch (@SuppressWarnings("unused") OgnlException e) {
 				// nop
 			}
+		}
+		return args;
+	}
+
+	private Object invokeController(Controller<Object> controller, PathInfo pathInfo, HttpServletRequest request) {
+		String methodName = pathInfo.getMethod();
+		Class<?> clazz = controller.getClass();
+		Method method = null;
+		Class<?> type = null;
+
+		if (methodName.isEmpty()) {
+			methodName = DEFAULT_METHOD;
+		}
+		for (Method targetMethod : clazz.getDeclaredMethods()) {
+			if (targetMethod.getDeclaringClass() == Object.class) {
+				continue;
+			}
+			int numOfParams = targetMethod.getParameterTypes().length;
+			if (1 < numOfParams) {
+				continue;
+			}
+			if (!targetMethod.getName().equals(methodName)) {
+				continue;
+			}
+			int mod = targetMethod.getModifiers();
+			if (Modifier.isVolatile(mod)) {
+				continue;
+			}
+			if (0 < numOfParams) {
+				type = targetMethod.getParameterTypes()[0];
+			}
+			method = targetMethod;
+			break;
+		}
+		if (method == null) {
+			return null;
+		}
+		Object[] args = fillParameter(type, pathInfo, request);
+		Object result = null;
+		try {
+			result = method.invoke(controller, args);
+		} catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
+			// nop
+			e.printStackTrace();
+		}
+		return result;
+	}
+
+	private void responseImage(HttpServletResponse response, RenderedImage img) throws IOException {
+		response.setContentType("image/png");
+		try (OutputStream output = response.getOutputStream()) {
+			ImageIO.write(img, "PNG", output);
 		}
 	}
 
@@ -88,15 +119,19 @@ public final class DealingServlet extends HttpServlet {
 	 * @see javax.servlet.http.HttpServlet#doPost(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)
 	 */
 	@Override
+	@SuppressWarnings("unchecked")
 	protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
-		Controller<Object> controller = getController(request);
+		PathInfo pathInfo = RequestUtils.inferPath(request);
+		String resource = pathInfo.getResource();
+		Controller<Object> controller = (Controller<Object>) ControllerCache.getInstance().get(resource);
 		Object result = null;
 
 		if (controller != null) {
-			Object parameter = getParameterObject(controller);
-
-			fillParameter(parameter, request);
-			result = controller.execute(parameter);
+			result = invokeController(controller, pathInfo, request);
+		}
+		if (result instanceof RenderedImage) {
+			responseImage(response, (RenderedImage) result);
+			return;
 		}
 		response.setCharacterEncoding(Charset.defaultCharset().toString());
 		response.setContentType("application/json;charset=UTF-8");
@@ -122,10 +157,14 @@ public final class DealingServlet extends HttpServlet {
 		super.init(config);
 		OgnlRuntime.setSecurityManager(null);
 		String controllerRoot = getInitParameter("controllerRoot");
-System.out.println("controllerRoot:" + controllerRoot);
+
+		if (controllerRoot == null) {
+			controllerRoot = "";
+		}
+		System.out.println("controllerRoot:" + controllerRoot);
 		try {
 			ControllerCache.getInstance().init(controllerRoot);
-		} catch (IOException e) {
+		} catch (@SuppressWarnings("unused") IOException e) {
 			// nop
 		}
 	}

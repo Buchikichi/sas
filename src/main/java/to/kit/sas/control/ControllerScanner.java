@@ -8,8 +8,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import org.apache.commons.lang3.StringUtils;
-
 /**
  * Scanning coltrollers.
  * @author Hidetaka Sasai
@@ -20,9 +18,9 @@ public final class ControllerScanner {
 	/** Directory of classes. */
 	private static final String CLASSES_ROOT = ".classes.";
 
-	private File getClassRoot(String controllerRoot) throws IOException {
+	private File getClassRoot(final String controllerRoot) throws IOException {
 		File root = null;
-		String name = StringUtils.defaultString(controllerRoot);
+		String name = controllerRoot;
 		ClassLoader loader = Thread.currentThread().getContextClassLoader();
 
 		name = name.replace(".", "/");
@@ -37,7 +35,7 @@ System.out.println("url:" + url);
 			}
 			try {
 				root = new File(url.toURI());
-			} catch (URISyntaxException e) {
+			} catch (@SuppressWarnings("unused") URISyntaxException e) {
 				//
 			}
 		}
@@ -69,7 +67,7 @@ System.out.println("url:" + url);
 System.out.println("className:" + className);
 		try {
 			clazz = Class.forName(className);
-		} catch (ClassNotFoundException e) {
+		} catch (@SuppressWarnings("unused") ClassNotFoundException e) {
 			// nop
 		}
 		return clazz;
