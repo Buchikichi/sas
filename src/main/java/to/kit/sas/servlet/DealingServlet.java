@@ -1,6 +1,5 @@
 package to.kit.sas.servlet;
 
-import java.awt.image.RenderedImage;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintWriter;
@@ -10,7 +9,6 @@ import java.lang.reflect.Modifier;
 import java.nio.charset.Charset;
 import java.util.Map;
 
-import javax.imageio.ImageIO;
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -108,13 +106,6 @@ public final class DealingServlet extends HttpServlet {
 		return result;
 	}
 
-	private void responseImage(HttpServletResponse response, RenderedImage img) throws IOException {
-		response.setContentType("image/png");
-		try (OutputStream output = response.getOutputStream()) {
-			ImageIO.write(img, "PNG", output);
-		}
-	}
-
 	/**
 	 * @see javax.servlet.http.HttpServlet#doPost(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)
 	 */
@@ -129,15 +120,18 @@ public final class DealingServlet extends HttpServlet {
 		if (controller != null) {
 			result = invokeController(controller, pathInfo, request);
 		}
-		if (result instanceof RenderedImage) {
-			responseImage(response, (RenderedImage) result);
+		if (result instanceof byte[]) {
+			response.setContentType("image/png");
+			try (OutputStream output = response.getOutputStream()) {
+				output.write((byte[]) result);
+			}
 			return;
 		}
 		response.setCharacterEncoding(Charset.defaultCharset().toString());
 		response.setContentType("application/json;charset=UTF-8");
 		try (PrintWriter out = response.getWriter()) {
 			if (result == null) {
-				out.println("{}");
+				out.println("[]");
 				return;
 			}
 			if (result instanceof String) {
