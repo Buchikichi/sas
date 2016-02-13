@@ -1,6 +1,7 @@
 package to.kit.sas.servlet;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.lang.reflect.InvocationTargetException;
@@ -14,6 +15,12 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+
+import org.apache.commons.fileupload.FileItemIterator;
+import org.apache.commons.fileupload.FileItemStream;
+import org.apache.commons.fileupload.FileUploadException;
+import org.apache.commons.fileupload.servlet.ServletFileUpload;
+import org.apache.commons.io.IOUtils;
 
 import net.arnx.jsonic.JSON;
 import ognl.Ognl;
@@ -29,10 +36,47 @@ import to.kit.sas.util.RequestUtils.PathInfo;
  * @author Hidetaka Sasai
  */
 public final class DealingServlet extends HttpServlet {
+	/** serialVersionUID. */
+	private static final long serialVersionUID = 5901560000976970784L;
 	/** extension. */
 	public static final String DEALING_PREFIX = "/DEAL";
 	/** A default method name. */
 	public static final String DEFAULT_METHOD = "execute";
+
+	private void fillParameterFromMultipartContent(Object obj, HttpServletRequest request) {
+		ServletFileUpload upload = new ServletFileUpload();
+
+		upload.setSizeMax(1024 * 1024);
+		try {
+			FileItemIterator it = upload.getItemIterator(request);
+
+			while (it.hasNext()) {
+				FileItemStream item = it.next();
+				String name = item.getFieldName();
+				String type = item.getContentType();
+				boolean isBin = !(type == null);
+				Object value;
+
+//				System.out.println("bin:" + isBin);
+//				System.out.println("type:" + type);
+//				System.out.println("name:" + item.getFieldName());
+				try (InputStream in = item.openStream()) {
+					byte[] bytes = IOUtils.toByteArray(in);
+					if (isBin) {
+						value = bytes;
+					} else {
+						value = new String(bytes);
+					}
+					Ognl.setValue(name, obj, value);
+				} catch (@SuppressWarnings("unused") OgnlException e) {
+					// nop
+				}
+			}
+		} catch (IOException | FileUploadException e) {
+			//e.printStackTrace();
+			return;
+		}
+	}
 
 	private Object[] fillParameter(Class<?> type, PathInfo pathInfo, HttpServletRequest request) {
 		if (type == null) {
@@ -50,13 +94,18 @@ public final class DealingServlet extends HttpServlet {
 		} catch (@SuppressWarnings("unused") InstantiationException | IllegalAccessException e) {
 			return null;
 		}
-		for (Map.Entry<String, String[]> entry : request.getParameterMap().entrySet()) {
-			String name = entry.getKey();
-			String value = entry.getValue()[0];
-			try {
-				Ognl.setValue(name, obj, value);
-			} catch (@SuppressWarnings("unused") OgnlException e) {
-				// nop
+		if (ServletFileUpload.isMultipartContent(request)) {
+			System.out.println("isMultipartContent");
+			fillParameterFromMultipartContent(obj, request);
+		} else {
+			for (Map.Entry<String, String[]> entry : request.getParameterMap().entrySet()) {
+				String name = entry.getKey();
+				String value = entry.getValue()[0];
+				try {
+					Ognl.setValue(name, obj, value);
+				} catch (@SuppressWarnings("unused") OgnlException e) {
+					// nop
+				}
 			}
 		}
 		return args;
