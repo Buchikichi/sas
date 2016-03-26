@@ -4,10 +4,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintWriter;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.charset.Charset;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import javax.servlet.ServletConfig;
@@ -21,10 +25,11 @@ import org.apache.commons.fileupload.FileItemStream;
 import org.apache.commons.fileupload.FileUploadException;
 import org.apache.commons.fileupload.servlet.ServletFileUpload;
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.commons.lang3.reflect.FieldUtils;
 
 import net.arnx.jsonic.JSON;
 import ognl.Ognl;
-import ognl.OgnlException;
 import ognl.OgnlRuntime;
 import to.kit.sas.control.Controller;
 import to.kit.sas.control.ControllerCache;
@@ -61,18 +66,19 @@ public final class DealingServlet extends HttpServlet {
 //				System.out.println("type:" + type);
 //				System.out.println("name:" + item.getFieldName());
 				try (InputStream in = item.openStream()) {
-					byte[] bytes = IOUtils.toByteArray(in);
-					if (isBin) {
-						value = bytes;
+					if ("application/json".equals(type)) {
+						value = JSON.decode(IOUtils.toString(in, "UTF-8"));
+					} else if (isBin) {
+						value = IOUtils.toByteArray(in);
 					} else {
-						value = new String(bytes);
+						value = IOUtils.toString(in, "UTF-8");
 					}
 					Ognl.setValue(name, obj, value);
-				} catch (@SuppressWarnings("unused") OgnlException e) {
-					// nop
+				} catch (@SuppressWarnings("unused") Exception e) {
+					//e.printStackTrace();
 				}
 			}
-		} catch (IOException | FileUploadException e) {
+		} catch (@SuppressWarnings("unused") IOException | FileUploadException e) {
 			//e.printStackTrace();
 			return;
 		}
@@ -100,11 +106,35 @@ public final class DealingServlet extends HttpServlet {
 		} else {
 			for (Map.Entry<String, String[]> entry : request.getParameterMap().entrySet()) {
 				String name = entry.getKey();
-				String value = entry.getValue()[0];
+				String[] values = entry.getValue();
+				int pos = name.indexOf('[');
+				if (pos != -1) {
+					name = name.substring(0, pos);
+				}
+				Field field = FieldUtils.getField(type, name, true);
+				if (field == null) {
+					continue;
+				}
+				Class<?> fieldType = field.getType();
+				boolean isList = List.class.isAssignableFrom(fieldType);
+
+				if (isList) {
+					try {
+						@SuppressWarnings("unchecked")
+						List<Object> list = (List<Object>) FieldUtils.readField(obj, name, true);
+
+						list.addAll(Arrays.asList(values));
+					} catch (@SuppressWarnings("unused") Exception e) {
+						// nop
+					}
+					continue;
+				}
 				try {
-					Ognl.setValue(name, obj, value);
-				} catch (@SuppressWarnings("unused") OgnlException e) {
-					// nop
+					for (String v : values) {
+						FieldUtils.writeField(obj, name, v, true);
+					}
+				} catch (Exception e) {
+					e.printStackTrace();
 				}
 			}
 		}
@@ -144,12 +174,18 @@ public final class DealingServlet extends HttpServlet {
 		if (method == null) {
 			return null;
 		}
-		Object[] args = fillParameter(type, pathInfo, request);
 		Object result = null;
 		try {
+			Object[] args = fillParameter(type, pathInfo, request);
+
 			result = method.invoke(controller, args);
 		} catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
-			// nop
+			Map<String, Object> map = new HashMap<>();
+
+			map.put("error", Boolean.TRUE);
+			map.put("message", ExceptionUtils.getMessage(e));
+			map.put("stackTrace", ExceptionUtils.getStackTrace(e));
+			result = map;
 			e.printStackTrace();
 		}
 		return result;
