@@ -8,6 +8,8 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.net.URI;
+import java.net.URL;
 import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -186,7 +188,6 @@ public final class DealingServlet extends HttpServlet {
 			map.put("message", ExceptionUtils.getMessage(e));
 			map.put("stackTrace", ExceptionUtils.getStackTrace(e));
 			result = map;
-			e.printStackTrace();
 		}
 		return result;
 	}
@@ -210,6 +211,12 @@ public final class DealingServlet extends HttpServlet {
 			try (OutputStream output = response.getOutputStream()) {
 				output.write((byte[]) result);
 			}
+			return;
+		}
+		if (result instanceof URI || result instanceof URL) {
+			String url = String.valueOf(result);
+
+			response.sendRedirect(url);
 			return;
 		}
 		response.setCharacterEncoding(Charset.defaultCharset().toString());
